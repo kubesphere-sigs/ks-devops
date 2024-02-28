@@ -52,8 +52,6 @@ const BuildNotExistMsg = "not found resources"
 // Reconciler reconciles a PipelineRun object
 type Reconciler struct {
 	client.Client
-	req                  ctrl.Request
-	ctx                  context.Context
 	log                  logr.Logger
 	Scheme               *runtime.Scheme
 	DevOpsClient         devopsClient.Interface
@@ -70,8 +68,6 @@ type Reconciler struct {
 // move the current state of the cluster closer to the desired state.
 func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := r.log.WithValues("PipelineRun", req.NamespacedName)
-	r.ctx = ctx
-	r.req = req
 
 	// get PipelineRun
 	pipelineRun := &v1alpha3.PipelineRun{}
@@ -169,7 +165,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		}
 
 		// store pipelinerun stage to configmap
-		if err = r.storePipelineRunData(string(nodeDetailsJSON), pipelineRunCopied); err != nil {
+		if err = r.storePipelineRunData(ctx, req, string(nodeDetailsJSON), pipelineRunCopied); err != nil {
 			log.Error(err, "unable to store pipeline stages to configmap.")
 			return ctrl.Result{}, err
 		}
@@ -247,7 +243,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	return ctrl.Result{}, nil
 }
 
-func (r *Reconciler) storePipelineRunData(nodeDetailsJSON string, pipelineRunCopied *v1alpha3.PipelineRun) (err error) {
+func (r *Reconciler) storePipelineRunData(ctx context.Context, req ctrl.Request, nodeDetailsJSON string, pipelineRunCopied *v1alpha3.PipelineRun) (err error) {
 	if r.PipelineRunDataStore == "" {
 		if pipelineRunCopied.Annotations == nil {
 			pipelineRunCopied.Annotations = make(map[string]string)
@@ -255,12 +251,12 @@ func (r *Reconciler) storePipelineRunData(nodeDetailsJSON string, pipelineRunCop
 		pipelineRunCopied.Annotations[v1alpha3.JenkinsPipelineRunStagesStatusAnnoKey] = nodeDetailsJSON
 
 		// update labels and annotations
-		if err = r.updateLabelsAndAnnotations(r.ctx, pipelineRunCopied); err != nil {
+		if err = r.updateLabelsAndAnnotations(ctx, pipelineRunCopied); err != nil {
 			r.log.Error(err, "unable to update PipelineRun labels and annotations.")
 		}
 	} else if r.PipelineRunDataStore == "configmap" {
 		var cmStore storeInter.ConfigMapStore
-		if cmStore, err = cmstore.NewConfigMapStore(r.ctx, r.req.NamespacedName, r.Client); err == nil {
+		if cmStore, err = cmstore.NewConfigMapStore(ctx, req.NamespacedName, r.Client); err == nil {
 			cmStore.SetStages(nodeDetailsJSON)
 			cmStore.SetOwnerReference(v1.OwnerReference{
 				APIVersion: pipelineRunCopied.APIVersion,
